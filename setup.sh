@@ -12,7 +12,7 @@ cmake ..
 make
 sudo make install
 
-sudo apt-get install -y libarmadillo-dev ros-"$ROS_DISTRO"-pcl-conversions ros-"$ROS_DISTRO"-pcl-ros
+sudo apt-get install -y git libarmadillo-dev ros-"$ROS_DISTRO"-pcl-conversions ros-"$ROS_DISTRO"-pcl-ros
 
 wget http://akira.ruc.dk/~keld/research/LKH-3/LKH-3.0.6.tgz
 tar xvfz LKH-3.0.6.tgz
