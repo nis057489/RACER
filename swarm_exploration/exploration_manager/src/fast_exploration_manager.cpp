@@ -137,6 +137,45 @@ int FastExplorationManager::planExploreMotion(
   findGridAndFrontierPath(pos, vel, yaw, grid_ids, frontier_ids);
 
   if (grid_ids.empty()) {
+    // Try updating frontier structure to find new grids
+    if (updateFrontierStruct(pos) == 0) {
+      ROS_WARN("No frontiers found with empty grid");
+      return NO_GRID;
+    }
+
+    // Find closest frontier target
+    double min_cost = 100000;
+    int min_cost_id = -1;
+    vector<Vector3d> tmp_path;
+    for (int i = 0; i < ed_->averages_.size(); ++i) {
+      auto tmp_cost = ViewNode::computeCost(
+          pos, ed_->points_[i], yaw[0], ed_->yaws_[i], vel, yaw[1], tmp_path);
+      if (tmp_cost < min_cost) {
+        min_cost = tmp_cost;
+        min_cost_id = i;
+      }
+    }
+
+    // No valid frontiers found
+    if (min_cost_id == -1) {
+      ROS_WARN("No valid frontiers with empty grid");
+      return NO_GRID;
+    }
+
+    // Use closest frontier as next target
+    next_pos = ed_->points_[min_cost_id];
+    next_yaw = ed_->yaws_[min_cost_id];
+    ROS_INFO("Using closest frontier as target");
+
+    // Plan trajectory to this target
+    if (planTrajToView(pos, vel, acc, yaw, next_pos, next_yaw) == FAIL) {
+      return FAIL; 
+    }
+
+    return SUCCEED;
+  }
+
+  if (grid_ids.empty()) {
 
     return NO_GRID;
 
