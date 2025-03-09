@@ -57,6 +57,12 @@ public:
       const vector<int>& first, const vector<vector<int>>& firsts,
       const vector<vector<int>>& seconds, const double& w_f);
 
+  // Optimize grid allocation between two drones
+  bool optimizeGridAllocation(
+      const vector<int>& grids1, const vector<int>& grids2,
+      const Eigen::Vector3d& pos1, const Eigen::Vector3d& pos2,
+      vector<int>& new_grids1, vector<int>& new_grids2);
+
   shared_ptr<ExplorationData> ed_;
   shared_ptr<ExplorationParam> ep_;
   shared_ptr<FastPlannerManager> planner_manager_;

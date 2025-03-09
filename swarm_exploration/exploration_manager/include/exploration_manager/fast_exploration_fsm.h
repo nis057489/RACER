@@ -55,6 +55,9 @@ private:
   void clearVisMarker();
   int getId();
   void findUnallocated(const vector<int>& actives, vector<int>& missed);
+  bool isInteractionBusy() const { return interaction_busy_; }
+  void setInteractionBusy(bool busy) { interaction_busy_ = busy; }
+  void rejectInteraction(const exploration_manager::PairOptConstPtr& msg);
 
   /* ROS functions */
   void FSMCallback(const ros::TimerEvent& e);
@@ -64,6 +67,7 @@ private:
   void odometryCallback(const nav_msgs::OdometryConstPtr& msg);
 
   // Swarm
+  vector<int> findNearbyDrones();
   void droneStateTimerCallback(const ros::TimerEvent& e);
   void droneStateMsgCallback(const exploration_manager::DroneStateConstPtr& msg);
   void optTimerCallback(const ros::TimerEvent& e);
@@ -92,6 +96,11 @@ private:
       hgrid_pub_;
   ros::Subscriber drone_state_sub_, opt_sub_, opt_res_sub_, swarm_traj_sub_;
   ros::Timer drone_state_timer_, opt_timer_, swarm_traj_timer_;
+
+  // Swarm interaction state
+  bool interaction_busy_{false};  // Mutex-like state for ongoing interactions
+  ros::Time last_interaction_time_;
+  std::map<int, ros::Time> last_success_times_;  // Track successful interactions per drone
 };
 
 }  // namespace fast_planner

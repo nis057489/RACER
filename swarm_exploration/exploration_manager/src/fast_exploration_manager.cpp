@@ -1170,4 +1170,65 @@ void FastExplorationManager::findTourOfFrontier(const Vector3d& cur_pos, const V
   //     parse_time, indices.size());
 }
 
+bool FastExplorationManager::optimizeGridAllocation(
+    const vector<int>& grids1, const vector<int>& grids2,
+    const Eigen::Vector3d& pos1, const Eigen::Vector3d& pos2,
+    vector<int>& new_grids1, vector<int>& new_grids2) {
+
+  // Start with current allocation
+  new_grids1 = grids1;
+  new_grids2 = grids2;
+
+  // Combine all grids
+  vector<int> all_grids;
+  all_grids.insert(all_grids.end(), grids1.begin(), grids1.end());
+  all_grids.insert(all_grids.end(), grids2.begin(), grids2.end());
+
+  double orig_cost = 0.0;
+  double new_cost = 0.0;
+
+  // Compute original allocation cost based on distance
+  for (auto id : grids1) {
+    Eigen::Vector3d grid_pos = hgrid_->getCenter(id);
+    orig_cost += (grid_pos - pos1).norm();
+  }
+  for (auto id : grids2) {
+    Eigen::Vector3d grid_pos = hgrid_->getCenter(id);
+    orig_cost += (grid_pos - pos2).norm();
+  }
+
+  // Try reallocating grids to reduce total distance cost
+  bool improved = false;
+  for (int i = 0; i < grids1.size(); i++) {
+    for (int j = 0; j < grids2.size(); j++) {
+      // Try swapping grid i from drone 1 with grid j from drone 2
+      auto test_grids1 = new_grids1;
+      auto test_grids2 = new_grids2;
+      
+      std::swap(test_grids1[i], test_grids2[j]);
+      
+      // Compute new cost
+      double test_cost = 0.0;
+      for (auto id : test_grids1) {
+        Eigen::Vector3d grid_pos = hgrid_->getCenter(id);
+        test_cost += (grid_pos - pos1).norm();
+      }
+      for (auto id : test_grids2) {
+        Eigen::Vector3d grid_pos = hgrid_->getCenter(id);
+        test_cost += (grid_pos - pos2).norm();
+      }
+      
+      // Keep new allocation if cost is reduced
+      if (test_cost < orig_cost * 0.9) { // 10% improvement threshold
+        new_grids1 = test_grids1;
+        new_grids2 = test_grids2;
+        improved = true;
+        orig_cost = test_cost;
+      }
+    }
+  }
+
+  return improved;
+}
+
 }  // namespace fast_planner

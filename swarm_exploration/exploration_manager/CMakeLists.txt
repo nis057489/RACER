@@ -29,8 +29,6 @@ find_package(catkin REQUIRED COMPONENTS
 
 add_message_files(
   FILES
-  # SentGoals.msg
-  # DeletedGoals.msg
   DroneState.msg
   PairOpt.msg
   PairOptResponse.msg

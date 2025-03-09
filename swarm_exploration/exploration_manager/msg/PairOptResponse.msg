@@ -1,6 +1,6 @@
+# Response message for pair-wise optimization
 
-# Success or failure due to inconsistent views
-int32 from_drone_id
-int32 to_drone_id
-int32 status 
-float64 stamp
+int32 sender_id
+int32 target_id
+bool success
+int32[] grid_ids  # New grid assignments if success=true
