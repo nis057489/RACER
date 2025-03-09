@@ -43,6 +43,13 @@ Please kindly star :star: this project if it helps you. We take great efforts to
 
 ## Quick Start
 
+### Setup Script
+
+Use the setup script, or follow the subsequent commands.
+```bash
+./setup.bash
+```
+
 This project has been tested on Ubuntu 18.04(ROS Melodic) and 20.04(ROS Noetic).
 
 Firstly, you should install __nlopt v2.7.1__:
@@ -59,6 +66,13 @@ sudo make install
 Next, you can run the following commands to install other required tools:
 ```
 sudo apt-get install libarmadillo-dev
+```
+
+### Install ROS Packages
+
+```bash
+sudo apt update
+sudo apt-get install -y ros-noetic-pcl-conversions ros-noetic-pcl-ros
 ```
 
 After that, you need to install __LKH-3__(LKH-3.0.6 version is recommended) with the following commands. Please make sure the executable file `LKH` is correctly placed at `/usr/local/bin`.
