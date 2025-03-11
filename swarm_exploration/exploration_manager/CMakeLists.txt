@@ -65,6 +65,7 @@ add_executable(exploration_node
   )
 target_link_libraries(exploration_node 
   ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
   )
 
 add_executable(ground_node
@@ -73,4 +74,5 @@ add_executable(ground_node
   )
 target_link_libraries(ground_node
   ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
   )
