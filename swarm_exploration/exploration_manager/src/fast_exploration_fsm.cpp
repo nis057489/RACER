@@ -541,52 +541,60 @@ void FastExplorationFSM::clearVisMarker() {
 }
 
 void FastExplorationFSM::frontierCallback(const ros::TimerEvent& e) {
-  if (state_ == WAIT_TRIGGER) {
-    auto ft = expl_manager_->frontier_finder_;
-    auto ed = expl_manager_->ed_;
+  if (state_ != WAIT_TRIGGER) return;
 
-    auto getColorVal = [&](const int& id, const int& num, const int& drone_id) {
-      double a = (drone_id - 1) / double(num + 1);
-      double b = 1 / double(num + 1);
-      return a + b * double(id) / ed->frontiers_.size();
-    };
+  auto ft = expl_manager_->frontier_finder_;
+  auto ed = expl_manager_->ed_;
 
-    // ft->searchFrontiers();
-    // ft->computeFrontiersToVisit();
-    // ft->updateFrontierCostMatrix();
+  if (!ft || !ed) {
+    ROS_ERROR("Null frontier finder or exploration data");
+    return;
+  }
 
-    // ft->getFrontiers(ed->frontiers_);
-    // ft->getFrontierBoxes(ed->frontier_boxes_);
+  // Update frontiers and check for empty result
+  if (!expl_manager_->updateFrontierStruct(fd_->odom_pos_)) {
+    ROS_WARN("No frontiers found in updateFrontierStruct");
+    visualization_->drawLines({}, 0.07, Vector4d(0, 0.5, 0, 1), "grid_tour", 0, 6);
+    return;
+  }
 
-    expl_manager_->updateFrontierStruct(fd_->odom_pos_);
+  // Find global tour with proper error handling
+  vector<int> tmp_id1;
+  vector<vector<int>> tmp_id2;
+  bool status = false;
+  
+  try {
+    status = expl_manager_->findGlobalTourOfGrid(
+        {fd_->odom_pos_}, {fd_->odom_vel_}, tmp_id1, tmp_id2, true);
+  }
+  catch (const std::exception& e) {
+    ROS_ERROR("Exception in findGlobalTourOfGrid: %s", e.what());
+    return;
+  }
 
-    cout << "odom: " << fd_->odom_pos_.transpose() << endl;
-    vector<int> tmp_id1;
-    vector<vector<int>> tmp_id2;
-    bool status = expl_manager_->findGlobalTourOfGrid(
-        { fd_->odom_pos_ }, { fd_->odom_vel_ }, tmp_id1, tmp_id2, true);
+  // Draw frontier visualization
+  if (ed->frontiers_.empty()) {
+    visualization_->drawLines({}, 0.07, Vector4d(0, 0.5, 0, 1), "grid_tour", 0, 6);
+    return;
+  }
 
-    // Draw frontier and bounding box
-    for (int i = 0; i < ed->frontiers_.size(); ++i) {
+  for (int i = 0; i < ed->frontiers_.size(); ++i) {
+    if (!ed->frontiers_[i].empty()) {
       visualization_->drawCubes(ed->frontiers_[i], 0.1,
-          visualization_->getColor(double(i) / ed->frontiers_.size(), 0.4), "frontier", i, 4);
-      // getColorVal(i, expl_manager_->ep_->drone_num_, expl_manager_->ep_->drone_id_)
-      // double(i) / ed->frontiers_.size()
-      // visualization_->drawBox(ed->frontier_boxes_[i].first, ed->frontier_boxes_[i].second,
-      // Vector4d(0.5, 0, 1, 0.3),
-      //                         "frontier_boxes", i, 4);
+          visualization_->getColor(double(i) / ed->frontiers_.size(), 0.4), 
+          "frontier", i, 4);
     }
-    for (int i = ed->frontiers_.size(); i < 50; ++i) {
-      visualization_->drawCubes({}, 0.1, Vector4d(0, 0, 0, 1), "frontier", i, 4);
-      // visualization_->drawBox(Vector3d(0, 0, 0), Vector3d(0, 0, 0), Vector4d(1, 0, 0, 0.3),
-      // "frontier_boxes", i, 4);
-    }
-    if (status)
-      visualize(2);
-    else
-      visualization_->drawLines({}, 0.07, Vector4d(0, 0.5, 0, 1), "grid_tour", 0, 6);
+  }
 
-    // Draw grid tour
+  // Clear old visualization markers
+  for (int i = ed->frontiers_.size(); i < 50; ++i) {
+    visualization_->drawCubes({}, 0.1, Vector4d(0, 0, 0, 1), "frontier", i, 4);
+  }
+
+  if (status) {
+    visualize(2);
+  } else {
+    visualization_->drawLines({}, 0.07, Vector4d(0, 0.5, 0, 1), "grid_tour", 0, 6);
   }
 }
 
@@ -730,83 +738,157 @@ vector<int> FastExplorationFSM::findNearbyDrones() {
 }
 
 void FastExplorationFSM::optTimerCallback(const ros::TimerEvent& e) {
-  // Find nearby quadrotors
-  vector<int> nearby_drones = findNearbyDrones();
+  // Remove periodic checking since we're moving to event-driven
+  checkMapChangeAndInitiateInteraction();
+}
+
+void FastExplorationFSM::checkMapChangeAndInitiateInteraction() {
+  static Eigen::Vector3d last_frontiers_center;
+  static int last_frontiers_count = 0;
   
-  // If we're busy, don't initiate new interactions
-  if (isInteractionBusy()) {
-    return;
+  // Check if map has changed significantly
+  bool map_changed = false;
+  Eigen::Vector3d current_frontiers_center = Eigen::Vector3d::Zero();
+  
+  // Calculate center of current frontiers
+  const auto& frontiers = expl_manager_->ed_->frontiers_;
+  if (!frontiers.empty()) {
+    for (const auto& frontier : frontiers) {
+      if (!frontier.empty()) {
+        current_frontiers_center += frontier[0];
+      }
+    }
+    current_frontiers_center /= frontiers.size();
+  }
+  
+  // Detect significant changes
+  if ((current_frontiers_center - last_frontiers_center).norm() > 2.0 ||  // Position change threshold
+      abs(int(frontiers.size()) - last_frontiers_count) > 2) {           // Count change threshold
+    map_changed = true;
   }
 
-  // Find drone that hasn't had successful interaction for longest time
-  int target_drone = -1;
-  ros::Time oldest_time = ros::Time::now();
-  
-  for (int drone_id : nearby_drones) {
-    if (last_success_times_.find(drone_id) == last_success_times_.end()) {
-      target_drone = drone_id;
-      break;
-    }
-    if (last_success_times_[drone_id] < oldest_time) {
-      oldest_time = last_success_times_[drone_id];
-      target_drone = drone_id;
-    }
-  }
+  // Update history
+  last_frontiers_center = current_frontiers_center;
+  last_frontiers_count = frontiers.size();
 
-  if (target_drone != -1) {
-    // Send optimization request
-    exploration_manager::PairOpt msg;
-    msg.sender_id = getId();
-    msg.target_id = target_drone;
-    // Fill optimization data...
-    
-    setInteractionBusy(true);
-    last_interaction_time_ = ros::Time::now();
-    opt_pub_.publish(msg);
+  // If map changed significantly, initiate interaction with nearby drones
+  if (map_changed) {
+    vector<int> nearby_drones = findNearbyDrones();
+    for (int drone_id : nearby_drones) {
+      initiateInteractionRequest(drone_id);
+    }
   }
 }
 
-void FastExplorationFSM::optMsgCallback(const exploration_manager::PairOptConstPtr& msg) {
+void FastExplorationFSM::initiateInteractionRequest(int target_drone_id) {
   if (isInteractionBusy()) {
-    rejectInteraction(msg);
     return;
   }
+
+  exploration_manager::PairOpt msg;
+  msg.sender_id = getId();
+  msg.target_id = target_drone_id;
   
+  // Include current grid assignments and position
+  msg.grid_ids.clear();
+  for (const auto& id : expl_manager_->ed_->swarm_state_[getId()-1].grid_ids_) {
+    msg.grid_ids.push_back(id);
+  }
+  msg.position = {fd_->odom_pos_[0], fd_->odom_pos_[1], fd_->odom_pos_[2]};
+
   setInteractionBusy(true);
   last_interaction_time_ = ros::Time::now();
   
-  // Process optimization 
-  auto& state = expl_manager_->ed_->swarm_state_;
-  bool success = false;
-
-  // Get current allocations of both drones
-  vector<int> my_grids = state[getId()-1].grid_ids_;
-  vector<int> other_grids = state[msg->sender_id-1].grid_ids_;
-
-  // Try to optimize allocation between the two drones
-  vector<int> new_my_grids, new_other_grids;
-  if (expl_manager_->optimizeGridAllocation(
-      my_grids, other_grids,
-      state[getId()-1].pos_, state[msg->sender_id-1].pos_,
-      new_my_grids, new_other_grids)) {
-    
-    // Update my grid allocation
-    state[getId()-1].grid_ids_ = new_my_grids;
-    success = true;
-  }
-
-  // Send response with optimization results
-  exploration_manager::PairOptResponse response;
-  response.sender_id = getId();
-  response.target_id = msg->sender_id; 
-  response.success = success;
-  if (success) {
-    // Include new grid assignments in response
-    response.grid_ids = new_other_grids;
-  }
-  opt_res_pub_.publish(response);
+  // Add request to pending queue
+  pending_requests_[target_drone_id] = msg;
   
-  setInteractionBusy(false);
+  opt_pub_.publish(msg);
+}
+
+void FastExplorationFSM::optMsgCallback(const exploration_manager::PairOptConstPtr& msg) {
+  if (!msg) {
+    ROS_ERROR("Received null optimization message");
+    return;
+  }
+
+  if (isInteractionBusy()) {
+    // If busy but received request from higher priority drone, queue current interaction
+    if (shouldPreemptCurrentInteraction(msg)) {
+      queueCurrentInteraction();
+      processNewInteraction(msg);
+    } else {
+      rejectInteraction(msg);
+    }
+    return;
+  }
+  
+  processNewInteraction(msg);
+}
+
+bool FastExplorationFSM::shouldPreemptCurrentInteraction(const exploration_manager::PairOptConstPtr& msg) {
+  // Priority based on drone ID and distance
+  if (msg->sender_id < getId()) {
+    Eigen::Vector3d sender_pos(msg->position[0], msg->position[1], msg->position[2]);
+    double distance = (sender_pos - fd_->odom_pos_).norm();
+    return distance < 5.0; // Preempt if higher priority drone is close
+  }
+  return false;
+}
+
+void FastExplorationFSM::queueCurrentInteraction() {
+  // Save current interaction state to queue
+  interaction_queue_.push(current_interaction_);
+}
+
+void FastExplorationFSM::processNewInteraction(const exploration_manager::PairOptConstPtr& msg) {
+  if (!msg || !expl_manager_ || !expl_manager_->ed_) {
+    ROS_ERROR("Invalid message or null exploration manager");
+    return;
+  }
+
+  setInteractionBusy(true);
+  last_interaction_time_ = ros::Time::now();
+  current_interaction_ = *msg;
+  
+  // Process optimization request asynchronously
+  std::thread opt_thread([this, msg]() {
+    auto& state = expl_manager_->ed_->swarm_state_;
+    
+    vector<int> my_grids = state[getId()-1].grid_ids_;
+    vector<int> other_grids;
+    for (const auto& id : msg->grid_ids) {
+      other_grids.push_back(id);
+    }
+
+    // Try to optimize allocation
+    vector<int> new_my_grids, new_other_grids;
+    bool success = expl_manager_->optimizeGridAllocation(
+        my_grids, other_grids,
+        state[getId()-1].pos_, 
+        Eigen::Vector3d(msg->position[0], msg->position[1], msg->position[2]),
+        new_my_grids, new_other_grids);
+
+    // Send response
+    exploration_manager::PairOptResponse response;
+    response.sender_id = getId();
+    response.target_id = msg->sender_id;
+    response.success = success;
+    if (success) {
+      response.grid_ids = new_other_grids;
+      state[getId()-1].grid_ids_ = new_my_grids;
+    }
+    opt_res_pub_.publish(response);
+    
+    setInteractionBusy(false);
+    
+    // Process next queued interaction if any
+    if (!interaction_queue_.empty()) {
+      auto next_msg = interaction_queue_.front();
+      interaction_queue_.pop();
+      processNewInteraction(boost::make_shared<exploration_manager::PairOpt>(next_msg));
+    }
+  });
+  opt_thread.detach();
 }
 
 void FastExplorationFSM::optResMsgCallback(const exploration_manager::PairOptResponseConstPtr& msg) {

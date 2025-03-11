@@ -12,6 +12,7 @@
 #include <exploration_manager/PairOpt.h>
 #include <exploration_manager/PairOptResponse.h>
 #include <bspline/Bspline.h>
+#include <queue>
 
 #include <algorithm>
 #include <iostream>
@@ -59,6 +60,17 @@ private:
   void setInteractionBusy(bool busy) { interaction_busy_ = busy; }
   void rejectInteraction(const exploration_manager::PairOptConstPtr& msg);
 
+  // Add new helper functions
+  void checkMapChangeAndInitiateInteraction();
+  void initiateInteractionRequest(int target_drone_id);
+  bool shouldPreemptCurrentInteraction(const exploration_manager::PairOptConstPtr& msg);
+  void queueCurrentInteraction();
+  void processNewInteraction(const exploration_manager::PairOptConstPtr& msg);
+
+  // Add new helper functions for safety
+  void initializeGrids();
+  bool validateGridAllocation(const vector<int>& grid_ids);
+
   /* ROS functions */
   void FSMCallback(const ros::TimerEvent& e);
   void safetyCallback(const ros::TimerEvent& e);
@@ -101,6 +113,11 @@ private:
   bool interaction_busy_{false};  // Mutex-like state for ongoing interactions
   ros::Time last_interaction_time_;
   std::map<int, ros::Time> last_success_times_;  // Track successful interactions per drone
+
+  // Add new member variables for event-driven interaction
+  std::map<int, exploration_manager::PairOpt> pending_requests_;
+  std::queue<exploration_manager::PairOpt> interaction_queue_;
+  exploration_manager::PairOpt current_interaction_;
 };
 
 }  // namespace fast_planner
